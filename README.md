@@ -232,7 +232,7 @@ Full paper-trading mode using real live market data. Switches to dry-run at the 
 | **OS** | Windows 10 64-bit | Windows 11 Pro 64-bit |
 | **CPU** | Intel Core i5 (any gen) | Intel Core i7 / Ryzen 7 |
 | **RAM** | 16 GB | **32 GB+** — recommended if running local LLMs |
-| **Storage** | 50 GB free | 1 TB SSD (data accumulates over time) |
+| **Storage** | 250 GB free | 1 TB SSD (data accumulates over time) |
 | **Python** | 3.10+ | 3.11+ |
 | **Node.js** | 18+ | 20 LTS |
 | **Ollama** | Required for AI features | Latest version |
