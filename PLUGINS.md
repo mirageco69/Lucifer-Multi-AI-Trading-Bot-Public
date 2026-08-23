@@ -1,6 +1,6 @@
 # LUCIFER Plugin Catalogue
 
-> **264+ active plugins** · Auto-discovered at startup · No restart required to add a new plugin
+> **280+ active plugins** · Auto-discovered at startup · No restart required to add a new plugin
 
 LUCIFER uses a WordPress-style plugin architecture. Every feature is a plugin: exchanges, AI agents, data sources, indicators, strategies, risk rules, and dashboard widgets. Adding a plugin means dropping three files into `src/plugins/<category>/<name>/`:
 
@@ -39,10 +39,12 @@ These plugins connect LUCIFER to trading exchanges. Each manages its own authent
 | `local_ollama_advisor` | Pre-trade gate — validates every trade with structured LLM reasoning before the Brain was introduced. Now superseded by the Brain for buy decisions. |
 | `claude_advisor` | Cloud AI gate — **disabled** (zero cloud API policy; local Ollama only) |
 | `ensemble` | Ensemble voting — combines multiple strategy signals into a weighted decision |
-| `ai_chat_assistant` | In-dashboard AI chat assistant |
+| `ai_chat` | **AI Chat** — persistent conversation history, Ollama streaming, live trading context (portfolio, positions, Brain state), model selector (qwen3:8b / qwen2.5:14b), quick prompts, mobile sidebar |
 | `llm_prompts` | **LLM Prompt Editor** — edit all AI system prompts from the dashboard without touching Python files. Changes take effect immediately, no restart. |
 | `mc_ai_brain` | **AI Brain Widget** — Mission Control status card showing last decision, open positions, MTF gate result, and opportunity score. |
 | `brain_console` | **Brain Console** — live terminal feed of every AI Brain decision, exit debate, executor order, and log line. Colour-coded by action. Tabs: All / Decisions / Log / Queue. |
+| `mc_paper_comparison` | **Paper Bot Comparison** — side-by-side Mission Control widget comparing Legacy (rules-only) vs AI Brain paper bot: total value, realised/unrealised PnL, cash, trades, days running, and holdings. |
+| `mc_process_control` | **Process Control** — 3-button Mission Control widget to restart live bots, the dashboard, or all services remotely. Writes to `data/restart_requests/` — supervisor picks up and executes within 60s. |
 
 ### AI Brain Architecture
 
@@ -75,12 +77,13 @@ Market data + watchlist + ReasoningBank
 | `services/decision_ledger.py` | Full audit trail of every Brain decision and outcome |
 | `services/reflection_engine.py` | 2am nightly reflection — extracts patterns into ReasoningBank |
 | `services/watchlist_mtf.py` | Multi-timeframe signals from watchlist price array (no external API) |
-| `services/watchlist_discovery.py` | 4-hourly paper evaluation of watchlist candidates |
+| `services/watchlist_discovery.py` | Hourly paper evaluation of watchlist candidates |
 | `data/brain_orders.json` | Live buy queue — Brain writes, executor reads |
 | `data/brain_orders_ig.json` | Live buy queue for IG Markets |
 | `data/exit_debates.json` | Open position exit debate state (floor, hold count) |
 | `data/reasoning_bank.json` | Accumulated learned patterns |
 | `data/decision_ledger.json` | Full decision history with outcomes |
+| `data/chat_conversations.json` | AI Chat conversation history |
 
 ### LLM Prompt Keys (editable from dashboard)
 
@@ -114,6 +117,7 @@ Market data + watchlist + ReasoningBank
 | `derivatives_feed` | Futures funding rates and open interest |
 | `onchain_macro_feed` | On-chain macro indicators (whale movements, exchange flows) |
 | `system_health_monitor` | CPU, RAM, disk, process health monitoring |
+| `interrupt_agent` | **Priority Interrupt Agent** — 3-tier background service polling macro events (ForexFactory), exchange health, price moves, circuit breaker state, drawdown, and IG session boundary every 30s. Writes active context to `data/interrupt_context.json`. Injected as a coloured urgency banner at the top of every Brain debate prompt. |
 
 ---
 

@@ -171,7 +171,9 @@ C:\projects\tradingbot\scripts\supervisor.ps1
 
 The supervisor starts and monitors all configured processes, restarting them automatically if they crash. It is set up to run at Windows logon via Task Scheduler.
 
-To restart all processes manually:
+To restart individual services or all services remotely, use the **Process Control** widget in Mission Control — no RDP or terminal access required. It writes restart request files to `data/restart_requests/` which the supervisor picks up within 60 seconds.
+
+To restart all processes manually from a terminal:
 
 ```powershell
 C:\projects\tradingbot\scripts\restart_all.ps1
@@ -190,6 +192,8 @@ https://192.168.x.x:5443
 
 Log in with the admin credentials set during first-run setup.
 
+The dashboard is a **Progressive Web App (PWA)**. On mobile, use "Add to Home Screen" in your browser to install it as an app — it will show the LUCIFER icon and launch in standalone mode (no browser chrome).
+
 ---
 
 ## Auto-Start at Login (Supervisor)
@@ -197,6 +201,58 @@ Log in with the admin credentials set during first-run setup.
 The supervisor (`scripts/supervisor.ps1`) runs at Windows logon via Task Scheduler, starting and monitoring all configured processes without a password prompt.
 
 > **Note**: The Store version of Python (from the Microsoft Store) does not support passwordless Task Scheduler tasks. Use the python.org installer.
+
+---
+
+## System Health Monitoring (LibreHardwareMonitor)
+
+LUCIFER includes a **System Health** widget in Mission Control that shows CPU usage, RAM, disk, bot process status, critical Windows events, and — when LibreHardwareMonitor is running — **real CPU and GPU temperatures** with colour-coded status.
+
+### Why LHM?
+
+Windows does not expose CPU temperature through standard APIs. LibreHardwareMonitor (LHM) provides a local web server on `http://localhost:8085` that reports all hardware sensor data including CPU Package temp, GPU Core temp, and fan RPM.
+
+### Setup
+
+#### Step 1 — Install LHM
+
+Install via winget:
+
+```
+winget install LibreHardwareMonitor.LibreHardwareMonitor
+```
+
+#### Step 2 — Enable the Remote Web Server (required, one-time)
+
+This step **must be done manually through the UI** — editing the config file has no effect.
+
+1. Open LibreHardwareMonitor (start it from the Start menu)
+2. Accept the UAC admin prompt — LHM needs admin rights to read hardware sensors
+3. Go to **View → Options → Remote Web Server**
+4. Check **"Run Web Server"**
+5. Set the port to **8085** (this is what LUCIFER expects)
+6. Click **OK**
+7. Close LHM — the web server setting is now persisted
+
+You can verify it is working by opening `http://localhost:8085` in your browser — you should see a page of sensor data.
+
+#### Step 3 — Supervisor takes over
+
+The supervisor starts LHM automatically at every logon (it is included in `$bots` in `supervisor.ps1` with the `Gui=true` flag so it can render its system tray icon). You do not need to start it manually after the initial setup.
+
+> **Note**: On the very first logon after a fresh install, Windows may show a UAC prompt for LHM — click **Yes**. After that it runs silently.
+
+### Temperature thresholds
+
+| Temp | Status | Bot action |
+|------|--------|------------|
+| < 80°C | ✅ Normal | None |
+| 80–87°C | 🟡 Warm | Log only |
+| 88–94°C | 🟠 High | Telegram warning |
+| 95–97°C | 🔴 Critical | Pause buys + pause Ollama AI Brain |
+| 98°C+ | 🚨 Emergency | Graceful bot shutdown + Telegram alert |
+
+The new cooler (fitted August 2026) sustains 84–85°C under 100% CPU load with 15–17°C TjMAX headroom.
 
 ---
 
@@ -230,7 +286,7 @@ The reflection model (`qwen2.5:14b`) takes 5–15 minutes — this is expected. 
 
 ### Watchlist discovery
 
-Every 4 hours, the Brain paper-evaluates the best candidates from the 72-coin watchlist. BUY decisions go to a paper portfolio only. After 3 paper wins, a Telegram alert suggests promoting the coin to the live list.
+Every hour, the Brain paper-evaluates the best candidates from the 72-coin watchlist. BUY decisions go to a paper portfolio only. After 3 paper wins, a Telegram alert suggests promoting the coin to the live list.
 
 ### Enabling the Brain
 
@@ -244,6 +300,28 @@ In `data/settings.json` or from the dashboard (AI workspace → Brain Settings):
 ```
 
 Set `ai_brain_paper_only: false` only when you are satisfied with the quality of debates shown in the Brain Console (Mission Control → Brain Console widget).
+
+---
+
+## AI Chat
+
+LUCIFER includes a built-in AI chat assistant, accessible from the **AI Brain** workspace. It uses the same local Ollama models as the Brain — no cloud API calls.
+
+### Features
+
+- **Persistent conversation history** — conversations are saved to `data/chat_conversations.json` and grouped by date (Today / Yesterday / This week / Older)
+- **Streaming responses** — tokens stream to the screen in real time as the model generates them
+- **Live trading context** — every conversation is automatically enriched with your current portfolio, open positions, recent Brain decisions, and IG positions
+- **Auto-titled conversations** — the first message becomes the conversation title automatically
+- **Model selector** — switch between `qwen3:8b` (fast) and `qwen2.5:14b` (deeper reasoning) per conversation
+- **Quick prompts** — one-tap shortcuts for common questions ("Why did Brain skip the last trade?", "What's my biggest risk right now?", etc.)
+- **Mobile-friendly** — collapsible sidebar drawer on small screens
+
+### Using it
+
+Navigate to **AI Brain → AI Chat** in the dashboard. Start a new conversation with the **+** button or continue an existing one from the sidebar. The context bar at the top shows your live portfolio value, open positions, and Brain status.
+
+Ollama must be running with at least one model pulled before the chat will respond.
 
 ---
 
@@ -338,9 +416,37 @@ Check logs at `logs/dashboard.log`. Common causes:
 
 ### Plugin not showing in dashboard
 - Check `plugin.json` syntax (valid JSON, all required fields present)
+- **Check `"enabled": true` is set** — plugins default to disabled if the field is missing; the discovery engine skips them entirely
 - Run the Plugin Doctor from Settings to see specific errors
 - Check browser console for import errors in the widget
 - Rebuild the frontend: `npm run build` in `dashboard-new/`
+- Clear the saved grid layout in the browser console if the widget still doesn't appear on Mission Control: `localStorage.removeItem("lucifer-mc-executive-layout"); location.reload()`
+
+### System Health widget shows no temperatures
+
+The widget displays CPU/GPU load and RAM without temperatures if LHM's web server is not active. To fix:
+
+1. Open LibreHardwareMonitor from the Start menu (as admin)
+2. Go to **View → Options → Remote Web Server** and confirm **"Run Web Server"** is ticked and port is **8085**
+3. Test: open `http://localhost:8085` in a browser — if you see sensor data, it is working
+4. If the checkbox was already ticked but temps still don't show, untick it, click OK, re-tick it, click OK
+
+> The web server only activates after you enable it through the UI at least once. Editing LHM's config file directly has no effect.
+
+### AI Chat says "Chat API unavailable"
+
+The `ai_chat` plugin requires a bot restart to load. If you see this message:
+1. Restart the bot (the supervisor will pick it up automatically)
+2. Ensure Ollama is running: `ollama serve`
+3. Check that at least one model is pulled: `ollama list`
+
+### AI Chat responses are very slow
+
+The model is running on CPU. Ensure your NVIDIA GPU is detected by Ollama:
+```
+ollama run qwen3:8b "hello"
+```
+If generation is slow (>5 tokens/sec), check `nvidia-smi` to confirm the GPU is in use.
 
 ### "Hyperopt service not available"
 Optuna must be installed:
@@ -379,7 +485,8 @@ C:\projects\tradingbot\
     watchlist_mtf.py        — Multi-timeframe signals from watchlist data
     watchlist_discovery.py  — Discovery pipeline (paper evaluation of new coins)
   src/
-    plugins/                — 278+ plugin folders (auto-discovered)
+    plugins/                — 280+ plugin folders (auto-discovered)
+      ai_chat/              — AI Chat plugin (conversation history + Ollama streaming)
   dashboard-new/
     src/                    — React frontend source
     dist/                   — Built frontend (served by Flask)
@@ -390,6 +497,7 @@ C:\projects\tradingbot\
     decision_ledger.json    — Full audit trail of all Brain decisions
     reasoning_bank.json     — Accumulated learned patterns
     watchlist_state.json    — 72-coin watchlist with price history
+    chat_conversations.json — AI Chat conversation history
   logs/                     — Log files
     bot_coinspot.log        — Main crypto bot log
     ig_bot.log              — IG Markets bot log
