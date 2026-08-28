@@ -1,6 +1,6 @@
 # LUCIFER — The AI Multi-Trading Platform
 
-> **Version**: v2.2 &nbsp;|&nbsp; **Updated**: August 2026 &nbsp;|&nbsp; **Status**: Live Trading
+> **Version**: v2.4 &nbsp;|&nbsp; **Updated**: August 2026 &nbsp;|&nbsp; **Status**: Live Trading
 
 LUCIFER is a self-hosted, plugin-based automated trading platform for cryptocurrency and CFD/commodity markets. It runs 24/7 on a dedicated Windows machine, trades across multiple exchanges simultaneously, and manages risk through a layered AI gate, strategy engine, and research pipeline.
 
@@ -11,17 +11,18 @@ LUCIFER is a self-hosted, plugin-based automated trading platform for cryptocurr
 | Capability | Detail |
 |---|---|
 | **Multi-exchange trading** | CoinSpot, Swyftx, Bybit (crypto) · IG Markets (CFDs/commodities) |
-| **AI trading brain** | 7-agent autonomous brain — sole buy authority; intelligent exit debates consult ReasoningBank, MTF, regime, breadth before cutting a loss |
+| **AI trading brain** | 8-agent autonomous brain — sole buy authority; intelligent exit debates consult ReasoningBank, MTF, regime, breadth before cutting a loss |
 | **Strategy engine** | 139+ strategies across crypto and commodity asset classes |
 | **Research pipeline** | Autonomous AI research agent, backtester, statistical tools, strategy certification |
 | **Risk management** | Intelligent exit debates, trailing stops, DCA, drawdown limits, regime detection — no mechanical fixed stop-losses |
+| **IG Markets intelligence** | COT positioning data, overnight financing tracking, bid/offer spread monitoring, ATR-based position sizing — all injected into every IG Brain debate |
 | **Dashboard** | HTTPS web dashboard — Mission Control, Charts, Research, Strategies, Settings |
 | **Process Control** | Restart any bot, the dashboard, or all services remotely from Mission Control — no RDP required |
 | **Priority interrupt** | 3-tier interrupt agent monitors macro events, exchange health, and price moves; injects alerts directly into Brain debates |
 | **Plugin system** | WordPress-style auto-discovery — 280+ active plugins, no restart to add new ones |
 | **Telegram alerts** | Trade signals, daily P&L reports, AI decisions, breadth alerts |
 | **Paper trading** | Full dry-run mode — real data, no real money |
-| **IG Markets holdings** | Tiered commodity positions tracked separately with full P&L |
+| **IG Markets holdings** | Tiered commodity positions tracked separately with full P&L, overnight financing, and live spread data |
 
 ---
 
@@ -53,12 +54,12 @@ Mission Control Brain status widget — last decision, open positions, MTF gate 
 │  strategies/   │  optimize/     │  src/api/                     │
 ├────────────────┴────────────────┴──────────────────────────────┤
 │                     Plugin System                               │
-│  264+ plugins auto-discovered from src/plugins/**              │
+│  280+ plugins auto-discovered from src/plugins/**              │
 │  Each plugin: plugin.json + api.py + widget.jsx                │
 ├────────────────────────────────────────────────────────────────┤
 │              Exchanges                │   AI / LLM              │
-│  CoinSpot · Swyftx · Bybit · IG      │  Ollama (local)         │
-│  Paper exchange (dry-run)             │  Claude (cloud)         │
+│  CoinSpot · Swyftx · Bybit · IG      │  Ollama (local only)    │
+│  Paper exchange (dry-run)             │  qwen3:8b · qwen2.5:14b │
 └────────────────────────────────────────────────────────────────┘
 ```
 
@@ -69,9 +70,9 @@ Mission Control Brain status widget — last decision, open positions, MTF gate 
 ### Multi-Exchange Support
 Trade the same strategy across CoinSpot (crypto, AUD), Swyftx (crypto, AUD), Bybit (crypto, USDT), and IG Markets (CFDs/commodities) simultaneously. Each exchange has its own plugin with independent lot tracking, P&L, and order management.
 
-### 7-Agent Autonomous AI Brain
+### 8-Agent Autonomous AI Brain
 
-LUCIFER's AI Brain is a fully autonomous trading intelligence built entirely on local LLMs — no cloud API calls, no subscriptions, no data leaving your machine. It runs 24/7 on [Ollama](https://ollama.com), debating every potential trade through a structured 7-agent panel before a single order is placed.
+LUCIFER's AI Brain is a fully autonomous trading intelligence built entirely on local LLMs — no cloud API calls, no subscriptions, no data leaving your machine. It runs 24/7 on [Ollama](https://ollama.com), debating every potential trade through a structured 8-agent panel before a single order is placed.
 
 #### The Brain is the sole buy authority
 
@@ -79,16 +80,17 @@ When the Brain is enabled, the bot's own signal-triggered buys are completely bl
 
 #### The 7-Agent Debate Panel
 
-Each trade candidate triggers a parallel debate across six specialist agents, with a final Risk Manager adjudicating:
+Each trade candidate triggers a sequential debate across seven specialist agents, with a final Risk Manager adjudicating:
 
 | Agent | Model | Role |
 |---|---|---|
 | **Technical Analyst** | qwen3:8b | RSI, MACD, EMA, Bollinger, multi-timeframe alignment |
+| **Chart Analyst** | qwen3:8b | EMA stack, SuperTrend, VWAP, Bollinger squeeze, trend lines, momentum — reads the chart structure |
 | **Sentiment Analyst** | qwen3:8b | Fear & Greed index, crypto news sentiment, macro events |
 | **Fundamental Analyst** | qwen3:8b | Portfolio exposure, open positions, available cash, correlation |
 | **Bull Researcher** | qwen3:8b | Builds the strongest possible case FOR entering the trade |
 | **Bear Researcher** | qwen3:8b | Builds the strongest possible case AGAINST entering the trade |
-| **Risk Manager** | qwen2.5:14b | Reads all 5 agent reports + ReasoningBank history. Final veto — cannot be overruled |
+| **Risk Manager** | qwen2.5:14b | Reads all agent reports + ReasoningBank history. Final veto — cannot be overruled |
 | **Portfolio Manager** | qwen3:8b | Calculates position size (ATR + Kelly criterion), writes the execution order |
 
 The debate takes 3–8 minutes per coin. If Ollama is busy or slow, the Brain waits and retries — it never skips the debate to place a faster order.
@@ -159,6 +161,110 @@ The Brain Console (visible in Mission Control) is a live terminal feed showing e
 
 Four tabs: **All** (merged chronological feed) · **Decisions** (ledger) · **Log** (filtered bot log) · **Queue** (executor order status).
 
+#### Debate Viewer — Live Agent Terminal
+
+The Debate Viewer is a dedicated full-screen terminal UI that streams every agent's reasoning in real time as a debate unfolds. Instead of seeing only the final verdict, you watch each of the 8 agents arrive at their conclusion one by one — their reasoning lines, confidence score, and sentiment displayed in a monospace terminal with ASCII box-drawing characters.
+
+**What you see during a live debate:**
+
+```
+▶ SIGNAL DETECTED
+BTC $111,100  │  CRYPTO  │  25/08/2026 20:19:44 AEST
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+┌─ TECHNICAL ANALYST
+│  MTF alignment shows bullish momentum across 4h/6h timeframes
+│  RSI 41 — approaching oversold
+│  Price below EMA-21 (111,590) — mixed signals
+└─ ████████████░░░░░░░░  BULLISH 7/10
+
+┌─ BEAR RESEARCHER
+│  Paper strategy win rate only 14.8% — signals are not reliable
+│  CoinSpot premium 2.5% erodes entry cost basis significantly
+└─ ████░░░░░░░░░░░░░░░░  BEAR CASE 4/10
+
+...
+
+VERDICT: NO_TRADE  │  Final score: 3/10         all agents passed
+```
+
+The terminal header shows a live progress counter (`3 / 8 agents`, amber, blinking) so you always know where the debate is up to.
+
+**Signal history sidebar** lists the last 50 completed debates with asset, verdict badge, score, and timestamp — click any entry to replay its full reasoning in the terminal. A **LIVE** button returns you to the live feed instantly.
+
+**Mobile-responsive** — the history sidebar collapses into a top drawer on small screens, triggered by a ☰ HISTORY button. The terminal is full-width.
+
+Full dark and light theme support via CSS custom properties.
+
+### IG Markets Intelligence Layer
+
+When the IG Brain evaluates a CFD or commodity trade, it goes far beyond price and technical signals. Four dedicated services feed into every IG debate, giving the AI a full picture of the real cost and market structure before a single order is placed.
+
+#### CFTC Commitments of Traders (COT) Positioning
+
+The Brain checks the CFTC Commitments of Traders report — released weekly by the CFTC and automatically cached — for every commodity and futures instrument it trades. COT data shows how large institutional money managers, producers, and swap dealers are positioned relative to the last 52 weeks.
+
+| Signal | Percentile | What It Means |
+|---|---|---|
+| **CROWDED_LONG** | ≥ 0.80 (52w) | Speculative longs at a 52-week extreme — mean-reversion risk; the Bear Researcher flags this |
+| **NEUTRAL** | 0.21 – 0.79 | Balanced positioning — no strong crowding signal |
+| **CROWDED_SHORT** | ≤ 0.20 (52w) | Speculative shorts at a 52-week extreme — contrarian opportunity |
+
+COT data is available for all commodity and index futures tracked in the CFTC disaggregated report, including crypto futures for Bitcoin and Ethereum (CME contracts). Equity index instruments such as DAX, DOW, and NASDAQ return no COT signal and the field is silently absent from debates. The dashboard includes a dedicated **COT Signals** widget on Mission Control with separate sections for CME Crypto Futures and Commodities & Metals.
+
+The Bear Researcher and Risk Manager both receive the COT signal in their context. A CROWDED_LONG flag at 52-week extreme positioning is treated as a genuine mean-reversion risk factor — not a veto, but a reason to require stronger confirming evidence.
+
+#### Overnight Financing Tracker
+
+Every IG CFD position carries an overnight financing charge — the cost of holding a leveraged position open past the daily cut. LUCIFER computes this precisely for every open position and prospectively for any new trade being evaluated.
+
+**Formula**: `daily_cost = position_value × (benchmark_rate + 2.5% IG admin) / 365`
+
+The benchmark rate varies by instrument currency: SONIA for GBP instruments, SOFR for USD, ESTR for EUR, RBA Cash Rate for AUD. Rates are stored in `data/ig_overnight_rates.json` and applied nightly via an automated scheduler.
+
+The Risk Manager sees the projected daily carry cost (in AUD) and the annual rate (%) for every position being considered. This prevents the Brain from holding positions where the overnight financing erodes profits faster than the trade can move in its favour.
+
+- Daily financing accrues into `financing_accrued` on each open position
+- Total financing paid is tracked in `paper_ig_portfolio.json`
+- The Open Positions table on the dashboard shows rate, daily cost, and total accrued for every IG position
+
+#### Bid/Offer Spread Monitor
+
+IG Markets instruments carry a bid/offer spread — the round-trip cost of entering and exiting a trade. LUCIFER logs the live bid and offer price for every tracked instrument every 60 seconds, maintaining a rolling 200-observation history.
+
+From this history the spread tracker computes:
+- **Current spread** — latest observed bid/offer gap in points
+- **Typical spread** — median of the rolling window (filters outliers from wide-market open)
+- **Typical % cost** — round-trip spread as a percentage of price, so the AI can reason about break-even move size
+- **Min/max spread** — range over the observation window
+
+The Bear Researcher receives current spread and typical round-trip cost percentage directly in its prompt. A wide spread relative to the expected move is a legitimate bear argument. The Risk Manager sees spread friction as part of the system state block, ensuring it is always weighed against the expected edge.
+
+Spread data is visible in the Open Positions table on the dashboard (Spread and Spread Cost columns, shown only for IG positions).
+
+#### ATR-Based Position Sizer
+
+The Brain no longer guesses position size — it computes it from actual price volatility using Average True Range.
+
+**How it works:**
+1. The price history for each instrument is maintained in `data/ig_price_history.json` — IG-unit prices sampled every ~3 minutes by the commodity price scheduler, up to 200 observations per instrument (~10 hours of data)
+2. ATR is computed as the mean absolute consecutive price difference over the last 50 ticks — a short-term volatility measure in IG price points
+3. The suggested stop distance is `max(1.5 × ATR, min_stop_distance)` — never below the IG dealing rules minimum
+4. Position size is `floor(risk_aud / (stop_pts × lot_value_aud))`, clamped to the minimum lot size from `ig_dealing_rules.json`
+5. The `within_budget` flag signals when the minimum lot size forces the actual risk above 1.25× the configured budget — meaning the instrument is too large for the account at current settings
+
+The Brain's Risk Manager sees the full sizing breakdown in its system state:
+- Suggested lot size
+- Suggested stop in points (and the ATR that drove it)
+- Actual risk in AUD at that size
+- Risk as a percentage of the portfolio
+- Whether the trade is within budget or over
+
+The **IG Markets → Sizer** dashboard tab lets you see ATR sizing for every instrument in real time, with an adjustable risk % slider to model different position sizes before they are live.
+
+The risk percentage is controlled by `ig.atr_risk_pct` in Settings (default 1% of portfolio per trade).
+
+---
+
 ### Strategy Engine (139+ Strategies)
 Strategies are organised into two asset-class groups:
 
@@ -176,7 +282,7 @@ Strategies can be individually enabled, backtested, hyperopt-tuned, and certifie
 
 ### Plugin Doctor v2
 A 3-LLM autonomous self-healing engine that runs every 5 minutes in the dashboard:
-- Scans all 276+ plugins for missing files, import errors, and blueprint compliance gaps
+- Scans all 280+ plugins for missing files, import errors, and blueprint compliance gaps
 - Diagnoses root cause via LLM, proposes and applies a fix
 - Requests a targeted service restart via `data/restart_requests/`
 - Protected files (bot.py, data/*.json, supervisor.ps1) are diagnosed but never auto-repaired
@@ -218,7 +324,7 @@ Full paper-trading mode using real live market data. Switches to dry-run at the 
 | **Backend** | Python 3.11+ · Flask · APScheduler |
 | **Frontend** | React 18 · Vite · CSS Variables (5 themes) |
 | **Database** | JSON flat-file store (data/) · SQLite for research |
-| **AI** | Ollama (local LLMs only) · qwen3:8b · qwen2.5:14b · mistral-nemo:12b · serialised inference queue |
+| **AI** | Ollama (local only) · qwen3:8b · qwen2.5:14b · mistral-nemo:12b · serialised inference queue |
 | **Exchanges** | REST APIs — CoinSpot V2 · Swyftx JWT · Bybit V5 · IG Markets REST |
 | **Hosting** | Self-hosted Windows · HTTPS on port 5443 · mkcert TLS |
 | **Notifications** | Telegram Bot API |
@@ -330,6 +436,27 @@ Windows Hardware Error Architecture (WHEA) events appear in the System event log
 - [x] LUCIFER startup branding — Telegram startup message updated to LUCIFER branding with exchange name (2026-08-22)
 - [x] PWA / favicon — LUCIFER icon in browser tab and "Add to Home Screen" on mobile (2026-08-22)
 - [x] Change watcher — now tracks dashboard-new/src and dashboard-new/public alongside Python source (2026-08-22)
+
+- [x] Chart Analyst agent (Agent 1b) — 8th debate agent using EMA stack, SuperTrend, VWAP, Bollinger Bands, auto trend lines, and 5-bar momentum from live 1h candles; feeds chart structure verdict into Bull/Bear/Risk debate (2026-08-25)
+- [x] Adaptive trailing stop — tiered trail percentages that activate at 12%, tighten at 20% and 30% gains, with a floor that never exits below 10% profit; implemented for crypto lot engine and IG server-side stop amendments (2026-08-25)
+- [x] Paper bot $100k reset — all AI crypto paper bots reset to $100,000 with aggressive settings: 25% position size, $5,000 min buy, $25,000 max buy, 10% profit target, 5% stop loss (2026-08-25)
+- [x] Debate Viewer — full-screen live terminal UI streaming all 8 agent verdicts and reasoning as they complete; signal history sidebar (last 50 debates); debate replay; live progress counter (X / 8 agents); mobile-responsive with collapsible history drawer; full dark/light theme (2026-08-25)
+
+- [x] UTF-8 BOM fix — eliminated charmap decode errors across all settings readers in bot.py, ig_bot.py, notification_router, runtime_alerts, trade_alert_dispatcher, production_manager, and plugin APIs; breadth monitor encoding fixed (2026-08-26)
+- [x] Commodity price fetcher wired — fixed dead import in commodity_price_fetcher.py; scheduler now writes data/commodity_prices.json every 5 min; IG paper P&L unrealised column now populates on dashboard (2026-08-26)
+- [x] Debate Viewer history navigation — fixed bug where a new live debate would eject you from a historical replay; viewing past debates now persists across live debate cycles (2026-08-26)
+- [x] Screen wake lock — sun button in dashboard footer now requests WakeLock API alongside pausing the idle logout timer; screen stays on while watching debates on mobile/tablet (2026-08-26)
+- [x] AI agent prompt tuning — Bear Researcher, Adversarial Reviewer, and Risk Manager prompts rebalanced; agents now weigh opportunity cost alongside downside risk rather than defaulting to NO_TRADE on any uncertainty (2026-08-26)
+
+- [x] Trade celebration — profitable sell triggers a money rain animation and ching-ching sound on the dashboard; global poller fires on any page; paper bot profitable sells also trigger (paper sell audit logging added); toggle in Settings > System; TEST button in Debate Viewer header (2026-08-27)
+- [x] Paper Bot Comparison verdict — context-aware verdict text: "losing less than" when both bots negative, "ahead of" when both positive, "leading" when one positive / one negative (2026-08-27)
+- [x] Paper AI tuner speed fix — switched from 3-model parallel LLM panel to MODEL_FAST (qwen3:8b) only; tuning runs complete in ~4 min instead of ~12 min (2026-08-27)
+
+- [x] CFTC COT data integration — weekly Commitments of Traders report auto-fetched and cached (7-day TTL); 52-week percentile crowding signals for all CFTC-tracked commodities and metals; Bitcoin and Ethereum covered via CME crypto futures section of the same report; COT Signals widget on Mission Control with separate CME Crypto and Commodities & Metals sections; `cot_signal` injected into every IG debate context (2026-08-28)
+- [x] Overnight financing tracker — precise daily carry cost computed per position using benchmark rates (SONIA/SOFR/ESTR/RBA) + 2.5% IG admin; applied nightly to paper IG portfolio; financing accrued and daily rate shown in Open Positions table; `financing` injected into every IG debate context so Risk Manager weighs carry cost against expected edge (2026-08-28)
+- [x] Bid/offer spread monitor — rolling 200-observation spread log per instrument; typical spread, min/max, and round-trip % cost derived from live bid/offer prices sampled every 60s by paper IG monitor; Spread and Spread Cost columns in Open Positions table; `spread_stats` injected into IG debate context (2026-08-28)
+- [x] ATR-based IG position sizer — tick ATR computed from rolling 200-obs price history in IG points; suggested lot size = risk_aud / (1.5×ATR × lot_value_aud) clamped to IG dealing rules minimums; `within_budget` flag when min lot exceeds risk budget; IG Markets → Sizer tab on dashboard with live sizing for all 17 tracked instruments; `atr_sizing` injected into every IG debate context; risk % configurable via `ig.atr_risk_pct` in Settings (2026-08-28)
+- [x] AI Brain fully wired to IG intelligence layer — Bear Researcher now receives COT crowding signal and spread cost as explicit context lines; Risk Manager system state block now includes COT, overnight financing rate, spread friction, and ATR sizing recommendation for every IG debate; all four fields null-guarded so they are silently absent when data has not yet populated (2026-08-28)
 
 ### In Progress
 - [ ] First external tester onboarding — setup wizard, status page, empty states, install logging
