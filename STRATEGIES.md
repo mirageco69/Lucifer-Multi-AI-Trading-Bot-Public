@@ -1,6 +1,6 @@
 # LUCIFER Strategy Catalogue
 
-> **139 strategy plugins** across crypto and CFD/commodity asset classes · All backtestable · All hyperopt-tunable · All certifiable
+> **155+ strategy plugins** across crypto and CFD/commodity asset classes · All backtestable · All hyperopt-tunable · All certifiable
 
 ---
 
@@ -277,7 +277,7 @@ All strategies in LUCIFER can be:
 | **Hyperopt** | Use Optuna to search for optimal parameter values (RSI period, EMA periods, ATR multiplier, etc.) |
 | **Monte Carlo** | Generate 1,000+ randomised equity curve simulations to stress-test expected performance |
 | **Rule Significance** | Statistical test to verify that a strategy's rules have genuine predictive power vs random noise |
-| **Strategy Lab** | Side-by-side comparison of all 139 strategies by win rate, Sharpe, max drawdown, trade count |
+| **Strategy Lab** | Side-by-side comparison of all 155+ strategies by win rate, Sharpe, max drawdown, trade count |
 | **Certification** | Formal pass/fail gate — a strategy must pass before it can go live |
 
 ---

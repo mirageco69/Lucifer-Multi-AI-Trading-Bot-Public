@@ -258,17 +258,19 @@ The new cooler (fitted August 2026) sustains 84–85°C under 100% CPU load with
 
 ## AI Brain
 
-LUCIFER includes a 7-agent autonomous trading brain built entirely on local Ollama — no cloud API calls are ever made.
+LUCIFER includes an 8-agent autonomous trading brain built entirely on local Ollama — no cloud API calls are ever made.
 
 ### How it works
 
 When the Brain is enabled, it is the **sole buy authority**. The bot's own signal-triggered buys are blocked. Instead:
 
 1. The Brain debate loop runs every 60 seconds
-2. Six specialist agents debate the market context
-3. A Risk Manager (using `qwen2.5:14b`) makes the final call
-4. BUY decisions are queued to `data/brain_orders.json`
-5. A dedicated executor thread picks up the queue every 15 seconds and places the order
+2. Seven specialist agents debate the market context (Technical Analyst, Chart Analyst, Sentiment Analyst, Fundamental Analyst, Bull Researcher, Bear Researcher, Portfolio Manager)
+3. A Risk Manager (`qwen2.5:14b`) makes the final call — the only agent using the deeper model
+4. The decision is written to `data/debate_queue.json` by the requesting bot
+5. The **Debate Daemon** (`services/debate_service.py`) — a standalone supervised process — picks up the request within 5 seconds, deduplicates by instrument (15-min cooldown), runs the debate, and writes the result to `data/debate_results/{instrument}.json`
+6. The bot polls the result file; a BUY decision is placed immediately
+7. A dedicated executor thread handles order placement every 15 seconds
 
 ### Exit logic
 
@@ -478,26 +480,39 @@ C:\projects\tradingbot\
   dashboard.py              — Flask application entry point
   services/                 — Shared Python services
     ai_brain_loop.py        — Autonomous Brain debate loop
-    ai_decision_engine.py   — 7-agent debate pipeline
+    ai_decision_engine.py   — 8-agent debate pipeline (called only by debate_service.py)
+    debate_service.py       — Standalone Debate Daemon — sole process that calls run_debate()
+    chart_analyst.py        — Chart indicator analysis for the Chart Analyst agent
     exit_debate.py          — Intelligent exit debate engine
     reflection_engine.py    — Nightly ReasoningBank reflection (2am)
     reasoning_bank.py       — Local RAG memory for the Brain
     watchlist_mtf.py        — Multi-timeframe signals from watchlist data
     watchlist_discovery.py  — Discovery pipeline (paper evaluation of new coins)
+    cot_fetcher.py          — CFTC COT data — weekly crowding signals for CFD instruments
+    ig_atr_sizer.py         — ATR-based CFD position sizer
+    ig_overnight_cost.py    — CFD overnight financing calculator
+    ig_spread_tracker.py    — IG bid/offer spread logger (rolling 200 observations)
+    exchange_swyftx_demo.py — Swyftx demo account API client (shadow bot)
   src/
-    plugins/                — 280+ plugin folders (auto-discovered)
+    plugins/                — 300+ plugin folders (auto-discovered)
       ai_chat/              — AI Chat plugin (conversation history + Ollama streaming)
   dashboard-new/
     src/                    — React frontend source
     dist/                   — Built frontend (served by Flask)
   data/                     — Runtime data (JSON state files)
-    brain_orders.json       — Live Brain buy queue (crypto)
+    debate_queue.json       — Pending debate requests (written by bots, read by daemon)
+    debate_results/         — Per-instrument debate results (read by bots after daemon writes)
+    brain_orders.json       — Live Brain buy queue (crypto, legacy direct path)
     brain_orders_ig.json    — Live Brain buy queue (IG)
     exit_debates.json       — Open position exit debate state
     decision_ledger.json    — Full audit trail of all Brain decisions
     reasoning_bank.json     — Accumulated learned patterns
     watchlist_state.json    — 72-coin watchlist with price history
     chat_conversations.json — AI Chat conversation history
+    swyftx_demo_portfolio.json — Swyftx demo account portfolio state
+    swyftx_demo_trades.json — Swyftx demo trade history
+    cot_data.json           — CFTC COT signal cache (7-day TTL)
+    ig_spread_log.json      — Rolling spread history per IG instrument
   logs/                     — Log files
     bot_coinspot.log        — Main crypto bot log
     ig_bot.log              — IG Markets bot log
