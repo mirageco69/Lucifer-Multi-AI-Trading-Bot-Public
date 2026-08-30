@@ -1,6 +1,6 @@
 # LUCIFER — The AI Multi-Trading Platform
 
-> **Version**: v2.4 &nbsp;|&nbsp; **Updated**: August 2026 &nbsp;|&nbsp; **Status**: Live Trading
+> **Version**: v2.6 &nbsp;|&nbsp; **Updated**: August 2026 &nbsp;|&nbsp; **Status**: Live Trading
 
 LUCIFER is a self-hosted, plugin-based automated trading platform for cryptocurrency and CFD/commodity markets. It runs 24/7 on a dedicated Windows machine, trades across multiple exchanges simultaneously, and manages risk through a layered AI gate, strategy engine, and research pipeline.
 
@@ -16,6 +16,7 @@ LUCIFER is a self-hosted, plugin-based automated trading platform for cryptocurr
 | **Research pipeline** | Autonomous AI research agent, backtester, statistical tools, strategy certification |
 | **Risk management** | Intelligent exit debates, trailing stops, DCA, drawdown limits, regime detection — no mechanical fixed stop-losses |
 | **IG Markets intelligence** | COT positioning data, overnight financing tracking, bid/offer spread monitoring, ATR-based position sizing — all injected into every IG Brain debate |
+| **Swyftx demo bot** | Isolated demo account running the same Brain/strategy pipeline as live — separate data store, side-by-side P&L vs IG demo in Nathan's Test Trading dashboard |
 | **Dashboard** | HTTPS web dashboard — Mission Control, Charts, Research, Strategies, Settings |
 | **Process Control** | Restart any bot, the dashboard, or all services remotely from Mission Control — no RDP required |
 | **Priority interrupt** | 3-tier interrupt agent monitors macro events, exchange health, and price moves; injects alerts directly into Brain debates |
@@ -265,6 +266,34 @@ The risk percentage is controlled by `ig.atr_risk_pct` in Settings (default 1% o
 
 ---
 
+### Shared Debate Daemon
+
+#### The Problem It Solves
+
+LUCIFER runs multiple bots simultaneously — a live CoinSpot bot, a Swyftx demo bot, and an IG paper bot. Before this architecture change, each bot contained its own copy of the debate engine and ran its own independent 8-agent debate whenever it wanted to evaluate a coin. This meant that if both the CoinSpot bot and the Swyftx demo bot both decided to look at SOL at the same time, Ollama would be asked to run 16 agent evaluations back-to-back (8 per bot), loading the same models, processing the same market data, and arriving at the same answer — twice. On a machine with limited VRAM, this caused queuing delays of 15–30 minutes and frequent timeouts.
+
+#### How It Works Now
+
+All debate execution now runs in a single dedicated process — `services/debate_service.py` — supervised alongside the bots at startup. No bot ever calls the debate engine directly. Instead:
+
+1. **A bot reaches its entry gate** — price signal, MTF alignment, and all pre-debate filters have passed
+2. **The bot writes a request** to `data/debate_queue.json`: which instrument, which asset class, which exchange, and which account type
+3. **The Debate Daemon picks it up** within 5 seconds, checks whether that instrument is still in its 15-minute cooldown window, and if not, runs the full 8-agent debate
+4. **The result is written** to `data/debate_results/{instrument}.json` — the full debate record including every agent's verdict, confidence score, final decision, and the price at the time of the debate
+5. **Each bot polls its result file** every cycle and, if the result is fresh (under 15 minutes old) and the verdict is BUY, the bot queues the order for its own exchange
+
+#### What This Means in Practice
+
+- **One debate per coin, shared across all bots** — if CoinSpot and Swyftx demo both queue SOL at the same time, one debate runs and both bots read the same result. Ollama is called once, not twice.
+- **Deduplication by cooldown** — a coin that was just debated is locked out for 15 minutes. Duplicate requests from the same or different bots within that window are silently dropped.
+- **Exchange-aware results** — the result file records which exchange the debate was run for, so each bot can confirm the context matches before acting. The Fundamental Analyst in the debate sees the correct portfolio (CoinSpot holdings vs Swyftx demo holdings) based on the requesting bot's exchange.
+- **Decoupled failure modes** — if the Debate Daemon crashes, the bots continue running their strategy loops and simply find no fresh debate results. No bot crashes with it. The supervisor restarts the daemon automatically.
+- **Visible in the Debate Viewer** — every debate the daemon runs appears in the Debate Viewer terminal UI in real time, regardless of which bot triggered it.
+
+The daemon runs as a supervised `DebateService` process and logs to `logs/debate_service.log`.
+
+---
+
 ### Strategy Engine (139+ Strategies)
 Strategies are organised into two asset-class groups:
 
@@ -457,6 +486,17 @@ Windows Hardware Error Architecture (WHEA) events appear in the System event log
 - [x] Bid/offer spread monitor — rolling 200-observation spread log per instrument; typical spread, min/max, and round-trip % cost derived from live bid/offer prices sampled every 60s by paper IG monitor; Spread and Spread Cost columns in Open Positions table; `spread_stats` injected into IG debate context (2026-08-28)
 - [x] ATR-based IG position sizer — tick ATR computed from rolling 200-obs price history in IG points; suggested lot size = risk_aud / (1.5×ATR × lot_value_aud) clamped to IG dealing rules minimums; `within_budget` flag when min lot exceeds risk budget; IG Markets → Sizer tab on dashboard with live sizing for all 17 tracked instruments; `atr_sizing` injected into every IG debate context; risk % configurable via `ig.atr_risk_pct` in Settings (2026-08-28)
 - [x] AI Brain fully wired to IG intelligence layer — Bear Researcher now receives COT crowding signal and spread cost as explicit context lines; Risk Manager system state block now includes COT, overnight financing rate, spread friction, and ATR sizing recommendation for every IG debate; all four fields null-guarded so they are silently absent when data has not yet populated (2026-08-28)
+- [x] Swyftx demo bot — isolated demo account (`https://api.demo.swyftx.com.au`) running the same Brain + strategy pipeline as live Swyftx; completely separate data store (`swyftx_demo_portfolio.json`, `swyftx_demo_trades.json`); 30-second background sync loop; `EXCHANGE_OVERRIDE=swyftx_demo` routes all Brain orders to the demo API without touching the live exchange; shadow provider (no Telegram announcement) (2026-08-28)
+- [x] Nathan's Test Trading page — new Mission Control page showing IG demo + Swyftx demo accounts side by side; each panel shows balance, total/realised/unrealised P&L, open positions with position sizing bars, recent trades, win rate and trade count; auto-refreshes every 30 seconds; manual sync button for immediate Swyftx demo pull (2026-08-28)
+
+- [x] Shared Debate Daemon — AI debate execution extracted from every individual bot into a single standalone `services/debate_service.py` process (2026-08-29)
+- [x] Prometheus Phase 3 — dynamic nav: `useNav` hook reads nav blocks from `/api/registry/nav`; AppShell builds sidebar from API response; `workspaces.js` deleted and replaced by `shell-nav.js`; all 34 plugin nav blocks wired; no hardcoded route list anywhere in the shell (2026-08-29)
+- [x] Prometheus Phase 4 — Vite dev server proxy: `DashboardDev` supervisor entry runs Vite on port 3001; Flask proxies all non-API requests to Vite in `VITE_DEV=1` mode; falls back to compiled `dist/` if Vite is down; enables hot-module-replacement during development without a full rebuild cycle (2026-08-29)
+- [x] Prometheus Phase 5 — bot restart panel: `POST /api/registry/restart` writes `.restart` files to `data/restart_requests/`; Plugin Manager shows a `BotRestartPanel` that polls `GET /api/registry/restart` every 10s and displays pending restart queue; plugin install returns `requires_bot_restart` flag so the UI prompts automatically after installing a bot-side plugin (2026-08-29)
+- [x] CoinGecko ID overrides — 31 ticker-to-slug mappings added to `candle_fetcher.py` covering all coins whose lowercase ticker does not match the CoinGecko slug (BCH, BNB, TRX, ETC, MANA, SAND, AXS, APE, COMP, APT, STRK, SEI, TIA, METIS, MNT, ENJ, CHZ, FET, RENDER, SHIB, WIF, INJ, ROSE, ZEC, EGLD, HBAR, STX, MINA and more); eliminates 404 errors on CoinGecko candle fetches for the Brain Chart Analyst (2026-08-29)
+- [x] Weekend IG market hours — IG CFD grey-market instruments now open Saturday 07:00 AEST; `macro_calendar.py` emits a synthetic "IG Weekend Markets Open" event each Saturday at that time (21:00 UTC Friday); Saturday branch skips the maintenance window entirely; Sunday event renamed "IG Weekly Session Open" for the regular 24h instrument session (2026-08-29)
+- [x] Exchange-specific portfolio context in AI debates — `build_crypto_context()` now branches on the `exchange` parameter: when `exchange == "swyftx_demo"` it reads `swyftx_demo_portfolio.json` (cash, holdings, current prices) instead of `holdings.json`; the context `exchange` field is dynamically set so Portfolio Manager routes orders to the correct exchange; previously every bot's debate used coinspot portfolio data and coinspot order routing regardless of which exchange was running (2026-08-30)
+- [x] Exec Health PID monitor — SwyftxDemo process now appears in the System Health widget bot process list; `BOT_SUPERVISOR_NAME=SwyftxDemo` mapped to "Swyftx Demo" label; cross-Vite-root import bug in the widget fixed by inlining the API helper (2026-08-30)
 
 ### In Progress
 - [ ] First external tester onboarding — setup wizard, status page, empty states, install logging
