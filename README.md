@@ -1,6 +1,6 @@
 # LUCIFER — The AI Multi-Trading Platform
 
-> **Version**: v2.6 &nbsp;|&nbsp; **Updated**: August 2026 &nbsp;|&nbsp; **Status**: Live Trading
+> **Version**: v2.7 &nbsp;|&nbsp; **Updated**: September 2026 &nbsp;|&nbsp; **Status**: Live Trading
 
 LUCIFER is a self-hosted, plugin-based automated trading platform for cryptocurrency and CFD/commodity markets. It runs 24/7 on a dedicated Windows machine, trades across multiple exchanges simultaneously, and manages risk through a layered AI gate, strategy engine, and research pipeline.
 
@@ -11,16 +11,18 @@ LUCIFER is a self-hosted, plugin-based automated trading platform for cryptocurr
 | Capability | Detail |
 |---|---|
 | **Multi-exchange trading** | CoinSpot, Swyftx, Bybit (crypto) · IG Markets (CFDs/commodities) |
-| **AI trading brain** | 8-agent autonomous brain — sole buy authority; intelligent exit debates consult ReasoningBank, MTF, regime, breadth before cutting a loss |
-| **Strategy engine** | 139+ strategies across crypto and commodity asset classes |
-| **Research pipeline** | Autonomous AI research agent, backtester, statistical tools, strategy certification |
-| **Risk management** | Intelligent exit debates, trailing stops, DCA, drawdown limits, regime detection — no mechanical fixed stop-losses |
+| **AI trading brain** | 10-agent autonomous brain — sole buy authority; Agent 9 (CB Watchdog) diagnoses drawdowns; Agent 10 (Exit Agent) manages position lifecycle |
+| **Strategy engine** | 160+ strategies across crypto and commodity asset classes — momentum, mean reversion, ML, SMC, grid, arbitrage, regime-aware, CFD/commodity |
+| **Research pipeline** | Autonomous AI research agent, backtester, Hurst exponent, Monte Carlo, rule significance testing, strategy certification |
+| **Performance tracking** | Analytics, ATO tax (CGT) report, automated weekly report via Ollama + Telegram |
+| **Risk management** | Intelligent exit debates, trailing stops, DCA, 3-level auto circuit breaker with AI Watchdog diagnosis, regime detection — no mechanical fixed stop-losses |
 | **IG Markets intelligence** | COT positioning data, overnight financing tracking, bid/offer spread monitoring, ATR-based position sizing — all injected into every IG Brain debate |
 | **Swyftx demo bot** | Isolated demo account running the same Brain/strategy pipeline as live — separate data store, side-by-side P&L vs IG demo in Nathan's Test Trading dashboard |
+| **Moonbag Tracker** | Compares every sold coin against its current live price — shows missed gains (sold too early) and avoided losses (sold at the right time), with total AUD impact |
 | **Dashboard** | HTTPS web dashboard — Mission Control, Charts, Research, Strategies, Settings |
 | **Process Control** | Restart any bot, the dashboard, or all services remotely from Mission Control — no RDP required |
 | **Priority interrupt** | 3-tier interrupt agent monitors macro events, exchange health, and price moves; injects alerts directly into Brain debates |
-| **Plugin system** | WordPress-style auto-discovery — 280+ active plugins, no restart to add new ones |
+| **Plugin system** | WordPress-style auto-discovery — 280+ active plugins across 15 categories, no restart to add new ones |
 | **Telegram alerts** | Trade signals, daily P&L reports, AI decisions, breadth alerts |
 | **Paper trading** | Full dry-run mode — real data, no real money |
 | **IG Markets holdings** | Tiered commodity positions tracked separately with full P&L, overnight financing, and live spread data |
@@ -126,6 +128,53 @@ Fixed stop-losses are replaced entirely by AI-driven exit debates. When an open 
 | +12% | Hard exit — locks in gains, no debate |
 
 Each HOLD tightens the floor. After 3 HOLDs the position is force-closed regardless. This prevents the Brain from holding a losing position indefinitely while still giving recoveries a chance.
+
+#### Agent 9 — Autonomous Circuit Breaker & AI Watchdog
+
+LUCIFER's circuit breaker is a three-level graduated drawdown protection system that responds automatically as losses deepen — no manual intervention required.
+
+**Levels (measured from the rolling 30-day equity peak):**
+
+| Level | Drawdown | Action |
+|---|---|---|
+| **L0 — CLEAR** | < 5% | Normal trading — full position sizes |
+| **L1 — WARNING** | ≥ 5% | All new position sizes halved · Telegram alert |
+| **L2 — HALT** | ≥ 10% | No new buys · Existing positions ride · Telegram alert |
+| **L3 — EMERGENCY** | ≥ 20% | All new buys halted · Hourly repeat alert · Full manual review required |
+
+The CB clears automatically as soon as the portfolio recovers below the L1 threshold — a recovery notification fires and full position sizing is restored.
+
+**CB Watchdog — AI Diagnosis**
+
+When any CB level triggers, the Brain's next cycle runs Agent 9, the CB Watchdog. It performs an automated AI investigation into what caused the drawdown and reports its findings via Telegram:
+
+- Analyses the current portfolio snapshot, open positions, closed trades, and market regime
+- Classifies the drawdown as one of: `REAL_DRAWDOWN` (genuine loss), `CORRELATED_CRASH` (market-wide move), `STRATEGY_FAILURE` (specific strategy underperforming), `DATA_ARTIFACT` (calculation anomaly), or `RECOVERABLE_DIP` (within expected volatility)
+- Proposes a concrete remediation step: e.g. disable a strategy, reduce position size, reset circuit breaker peak, or wait for recovery
+- Reports verdict, confidence score, and recommended action directly to Telegram
+
+The Watchdog diagnosis runs via `qwen3:8b` (MODEL_FAST) to ensure it completes within the 5-minute Brain cycle even under queue pressure.
+
+**Force Peak / Testing**
+
+For testing CB levels without restarting the bot: write a float value to `data/auto_cb_force_peak.flag`. The next portfolio cycle picks up the flag, sets the peak to that value, and triggers the appropriate CB level — no restart race condition.
+
+#### Agent 10 — Exit Agent (AI Position Manager)
+
+Agent 10 is an autonomous exit manager that evaluates every open crypto position every 30 minutes and issues structured exit instructions. Unlike the Brain's entry debates, Agent 10 focuses entirely on position lifecycle: when to trail, when to scale out, and when to cut.
+
+**Verdict types:**
+
+| Verdict | Action |
+|---|---|
+| **HOLD** | No action — position remains open as-is |
+| **TRAIL** | Updates the trailing stop level in `data/exit_trail_levels.json` (informational — does not trigger a sell) |
+| **SCALE_OUT** | Writes a partial sell order to `data/exit_orders.json` — the executor thread sells the specified quantity |
+| **CUT** | Writes a full exit order to `data/exit_orders.json` — the executor thread sells the entire holding |
+
+SCALE_OUT and CUT orders call the real `place_sell()` on live exchanges. Cooldowns (30 min per position, 2 hr after acting) persist across bot restarts in `data/exit_agent_last_eval.json`.
+
+The Exit Agent is accessible as a plugin at `src/plugins/ai/exit_agent/` and tracks its decision history (last 200 evaluations) in `data/exit_agent_history.json`.
 
 #### The ReasoningBank — How the Brain Learns
 
@@ -334,15 +383,16 @@ Full paper-trading mode using real live market data. Switches to dry-run at the 
 
 | Workspace | Purpose |
 |---|---|
-| **Mission Control** | Portfolio overview, open positions, recent trades, exchange accounts |
-| **Markets** | Live price feeds, charts, market breadth, sentiment snapshot |
-| **Strategies** | Trading engine controls, strategy lab, optimisation, backtesting |
-| **Research** | Research centre, AI agent, statistical tools, certification |
-| **AI Brain** | AI Brain console, AI Chat, reasoning bank, LLM prompt editor, brain metrics |
-| **Risk** | Risk framework, trailing stops, DCA rules, regime detector |
-| **Exchange** | Per-exchange order books, trade history, ledger sync |
-| **Settings** | All platform settings — trading, risk, AI, automation, notifications |
-| **Engineering** | Blueprint health, tech debt, event bus, migration progress |
+| **Mission Control** | Portfolio overview, open positions, exchange panels, bot comparison, Nathan's Test Trading, Moonbag Tracker, maintenance mode, process control |
+| **Trading** | Holdings, live chart, markets feed, watchlist, trade journal, IG Markets interface, accountancy |
+| **AI Brain** | Brain Console, Debate Viewer, Brain Metrics, Conviction Trend, Correlation Guard, Post-Mortem, AI Chat, AI Tuner, LLM Prompt Editor |
+| **Research** | Research Centre, Research Lab, Market Breadth, Hurst Exponent, Monte Carlo, Rule Significance Testing, Strategy Replay |
+| **Strategies** | Strategy Lab, Strategy Backtester, Hyperopt, Optimisation Lab, 130+ crypto and CFD strategy plugins |
+| **Performance** | Analytics, Reports, Tax (ATO CGT), Auto Weekly Report |
+| **Risk** | Risk Monitor, Circuit Breaker, Alert Engine, Health Monitor, risk rule plugins (trailing stop, DCA, fear-DCA) |
+| **Settings** | All platform settings — trading, risk, AI, Telegram, webhooks, push notifications, audit log, bot logs |
+| **Engineering** | Blueprint health, plugin compliance, tech debt tracker, Prometheus migration progress |
+| **Plugins** | Plugin Manager, Plugin Registry, Plugin Doctor, webhook config |
 
 ---
 
@@ -410,6 +460,31 @@ The System Health widget in Mission Control shows CPU and GPU temperature in rea
 ### WHEA Errors — Early Warning
 
 Windows Hardware Error Architecture (WHEA) events appear in the System event log before a BSOD. The System Health widget surface these: if the 24-hour critical event count is non-zero, investigate CPU temperature under load before it escalates. In the August 2026 incident, WHEA events were visible for over a day before the first crash.
+
+---
+
+## Telegram Commands
+
+LUCIFER sends all alerts to a private Telegram bot and accepts commands from the registered chat. Commands work from any device and do not require access to the machine.
+
+| Command | Description |
+|---|---|
+| `/status` | Full bot status — active bots, portfolio value, CB level, last decision |
+| `/balance` | Current balances across all exchanges |
+| `/holdings` | Open positions with entry price and current P&L |
+| `/trades [N]` | Last N closed trades (default 5) |
+| `/buy [COIN] [amount]` | Manual buy order (requires confirmation) |
+| `/sell [COIN]` | Sell entire position (requires confirmation) |
+| `/pause` | Pause all new buys immediately |
+| `/resume` | Resume trading after a pause |
+| `/restart` | Trigger a graceful restart of all bots via the supervisor restart-flag mechanism |
+| `/logs [N]` | Tail the last N lines from the main bot log (default 15) |
+| `/ask [question]` | Ask the Brain a question — answered by the local Ollama model with full live trading context |
+| `/debate [COIN]` | Queue an immediate debate for the specified coin via the Debate Daemon |
+| `/watchdog` | Manually trigger the CB Watchdog (Agent 9) diagnosis cycle |
+| `/reset_cb` | Reset the circuit breaker peak to the current portfolio value and return to L0 |
+| `/version` | Show LUCIFER version, uptime, and model list |
+| `/help` | Show the full command list |
 
 ---
 
@@ -497,6 +572,10 @@ Windows Hardware Error Architecture (WHEA) events appear in the System event log
 - [x] Weekend IG market hours — IG CFD grey-market instruments now open Saturday 07:00 AEST; `macro_calendar.py` emits a synthetic "IG Weekend Markets Open" event each Saturday at that time (21:00 UTC Friday); Saturday branch skips the maintenance window entirely; Sunday event renamed "IG Weekly Session Open" for the regular 24h instrument session (2026-08-29)
 - [x] Exchange-specific portfolio context in AI debates — `build_crypto_context()` now branches on the `exchange` parameter: when `exchange == "swyftx_demo"` it reads `swyftx_demo_portfolio.json` (cash, holdings, current prices) instead of `holdings.json`; the context `exchange` field is dynamically set so Portfolio Manager routes orders to the correct exchange; previously every bot's debate used coinspot portfolio data and coinspot order routing regardless of which exchange was running (2026-08-30)
 - [x] Exec Health PID monitor — SwyftxDemo process now appears in the System Health widget bot process list; `BOT_SUPERVISOR_NAME=SwyftxDemo` mapped to "Swyftx Demo" label; cross-Vite-root import bug in the widget fixed by inlining the API helper (2026-08-30)
+
+- [x] Agent 9 — Auto Circuit Breaker Watchdog — 3-level graduated drawdown protection (L1 5%, L2 10%, L3 20%) with per-level Telegram alerts; CB Watchdog runs on Brain cycle, classifies drawdown cause, and proposes remediation via `qwen3:8b`; force-peak flag mechanism (`data/auto_cb_force_peak.flag`) for test injection without restart (2026-09-01)
+- [x] Agent 10 — Exit Agent — autonomous AI position manager evaluating all open crypto positions every 30 minutes; TRAIL/SCALE_OUT/CUT verdicts written to `data/exit_orders.json` and executed by bot executor thread; cooldowns (30 min per position, 2 hr after acting) persisted across restarts in `data/exit_agent_last_eval.json` (2026-09-01)
+- [x] Telegram command consolidation — all commands unified in `plugins/notifications/telegram.py`; new commands: `/restart` (graceful bot restart via supervisor flag), `/logs [N]` (tail bot log), `/ask [question]` (Brain AI chat via Ollama), `/debate [COIN]` (queue immediate debate), `/watchdog` (trigger Agent 9 diagnosis), `/reset_cb` (reset CB peak), `/version` (platform version + uptime) (2026-09-01)
 
 ### In Progress
 - [ ] First external tester onboarding — setup wizard, status page, empty states, install logging

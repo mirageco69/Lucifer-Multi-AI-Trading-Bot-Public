@@ -118,7 +118,7 @@ Replace `192.168.x.x` with your machine's LAN IP address. The dashboard will be 
 
 ### Step 5 — Configure Environment
 
-Copy `.env.example` to `.env` and fill in your credentials:
+Create a `.env` file in the project root with your credentials:
 
 ```ini
 # Exchange API Keys
@@ -127,27 +127,31 @@ COINSPOT_API_SECRET=your_secret_here
 
 SWYFTX_API_KEY=your_key_here
 
-BYBIT_API_KEY=your_key_here
-BYBIT_API_SECRET=your_secret_here
-
 IG_API_KEY=your_key_here
-IG_USERNAME=your_username
-IG_PASSWORD=your_password
-IG_ACCOUNT_TYPE=DEMO   # or LIVE
+IG_USERNAME=your_ig_email
+IG_PASSWORD=your_ig_password
+IG_ACCOUNT_ID=your_account_id
+IG_BASE_URL=https://demo-api.ig.com/gateway/deal   # demo; change to https://api.ig.com/gateway/deal for live
 
 # Dashboard
-DASHBOARD_SECRET_KEY=generate_a_random_string_here
+DASHBOARD_SECRET_KEY=generate_a_long_random_string_here
 
-# Telegram (optional)
-TELEGRAM_BOT_TOKEN=your_token
+# Telegram (optional but recommended)
+TELEGRAM_BOT_TOKEN=your_bot_token
 TELEGRAM_CHAT_ID=your_chat_id
 ```
 
-> Never commit `.env` to version control. It is in `.gitignore`. The platform uses local LLMs only — no cloud AI API keys are required or used.
+> Never commit `.env` to version control — it is in `.gitignore`. The platform uses local LLMs only — no cloud AI API keys are required or used.
 
-### Step 6 — Initial Settings
+### Step 6 — Create the Data Directory
 
-Edit `data/settings.json` to configure your trading parameters. At minimum:
+The `data/` folder is not included in the repository (it contains your live trading state). Create it and add a minimal `settings.json` to get started:
+
+```powershell
+mkdir C:\projects\tradingbot\data
+```
+
+Then create `data/settings.json` with these safe defaults:
 
 ```json
 {
@@ -155,11 +159,15 @@ Edit `data/settings.json` to configure your trading parameters. At minimum:
   "buying_enabled": false,
   "coinspot_active_coins": ["BTC", "ETH"],
   "trade_size_aud": 100,
-  "min_trade_size_aud": 50
+  "min_trade_size_aud": 50,
+  "ai_brain_enabled": false,
+  "ai_brain_paper_only": true
 }
 ```
 
-**Start with `dry_run: true` and `buying_enabled: false` until you have verified the bot is operating correctly.**
+**Keep `dry_run: true` and `buying_enabled: false` until you have verified the bot is operating correctly.**
+
+> **Recommended starting balances for paper trading:** Set each crypto paper account (CoinSpot, Swyftx, Bybit) to **$100,000 AUD** and the IG Markets paper account to **$1,000,000 AUD**. This gives the Brain meaningful position sizes to work with and avoids the circuit breaker firing on normal market noise that would affect a small account. You can set these directly in the portfolio data files or through the dashboard before enabling the Brain.
 
 ### Step 7 — Start the Platform
 
@@ -172,6 +180,8 @@ C:\projects\tradingbot\scripts\supervisor.ps1
 The supervisor starts and monitors all configured processes, restarting them automatically if they crash. It is set up to run at Windows logon via Task Scheduler.
 
 To restart individual services or all services remotely, use the **Process Control** widget in Mission Control — no RDP or terminal access required. It writes restart request files to `data/restart_requests/` which the supervisor picks up within 60 seconds.
+
+You can also use the Telegram `/restart` command from any device — it triggers the same restart-flag mechanism and sends a confirmation message when the bots come back online.
 
 To restart all processes manually from a terminal:
 
@@ -190,7 +200,14 @@ or from another machine on your network:
 https://192.168.x.x:5443
 ```
 
-Log in with the admin credentials set during first-run setup.
+Log in with the default credentials:
+
+| Field | Default |
+|---|---|
+| **Username** | `admin` |
+| **Password** | `lucifer123` |
+
+**Change the password immediately** after first login — go to Settings → Security & 2FA.
 
 The dashboard is a **Progressive Web App (PWA)**. On mobile, use "Add to Home Screen" in your browser to install it as an app — it will show the LUCIFER icon and launch in standalone mode (no browser chrome).
 
@@ -264,13 +281,24 @@ LUCIFER includes an 8-agent autonomous trading brain built entirely on local Oll
 
 When the Brain is enabled, it is the **sole buy authority**. The bot's own signal-triggered buys are blocked. Instead:
 
-1. The Brain debate loop runs every 60 seconds
-2. Seven specialist agents debate the market context (Technical Analyst, Chart Analyst, Sentiment Analyst, Fundamental Analyst, Bull Researcher, Bear Researcher, Portfolio Manager)
-3. A Risk Manager (`qwen2.5:14b`) makes the final call — the only agent using the deeper model
-4. The decision is written to `data/debate_queue.json` by the requesting bot
-5. The **Debate Daemon** (`services/debate_service.py`) — a standalone supervised process — picks up the request within 5 seconds, deduplicates by instrument (15-min cooldown), runs the debate, and writes the result to `data/debate_results/{instrument}.json`
-6. The bot polls the result file; a BUY decision is placed immediately
-7. A dedicated executor thread handles order placement every 15 seconds
+1. The bot's brain loop runs every 60 seconds — when a coin passes its entry gates, it writes a debate request to `data/debate_queue.json`
+2. `debate_service.py` (a separate supervised process) picks up the request within seconds and runs the 8-agent debate
+3. The result is written to `data/debate_results/{instrument}.json` — a BUY verdict in that file **is** the buy signal
+4. On the next bot tick, the bot reads the result file — if it is a BUY and less than **15 minutes old**, the order is placed immediately
+5. Results older than 15 minutes are discarded as stale and no order is placed
+
+### Which bot writes debate requests
+
+The Brain debate queue (`data/debate_queue.json`) is written by the bot processes — not the exchanges directly:
+
+| Bot process | Writes debates for | Asset class |
+|---|---|---|
+| `bot.py` | CoinSpot, Swyftx, Swyftx Demo | Crypto |
+| `ig_bot.py` | IG Markets | CFD / commodities |
+
+The Brain loop runs as a thread *inside* each bot. When a coin passes its entry gates, that thread writes a request to the queue. `debate_service.py` is a separate supervised process that watches the queue, runs the 8-agent debate, and writes the result back to `data/debate_results/`.
+
+**Bybit** is not wired into the debate system — it paper trades independently of the Brain.
 
 ### Exit logic
 
@@ -338,11 +366,6 @@ Ollama must be running with at least one model pulled before the chat will respo
 1. Log in to Swyftx → Profile → API Management
 2. Generate a new API key
 3. Copy to `.env`
-
-### Bybit
-1. Log in to Bybit → Account & Security → API Management
-2. Create key with **Trade** and **Read** permissions
-3. Copy key and secret to `.env`
 
 ### IG Markets
 1. Log in to IG → My IG → API
@@ -475,44 +498,32 @@ Plugin files in `src/plugins/` are preserved across updates — your plugin cust
 
 ```
 C:\projects\tradingbot\
-  bot.py                    — Crypto trading runtime (CoinSpot, Swyftx, Bybit)
+  bot.py                    — Crypto trading runtime (CoinSpot, Swyftx)
   ig_bot.py                 — IG Markets CFD trading runtime
   dashboard.py              — Flask application entry point
   services/                 — Shared Python services
     ai_brain_loop.py        — Autonomous Brain debate loop
-    ai_decision_engine.py   — 8-agent debate pipeline (called only by debate_service.py)
-    debate_service.py       — Standalone Debate Daemon — sole process that calls run_debate()
-    chart_analyst.py        — Chart indicator analysis for the Chart Analyst agent
+    ai_decision_engine.py   — 8-agent debate pipeline
+    debate_service.py       — Standalone debate daemon (sole caller of run_debate())
     exit_debate.py          — Intelligent exit debate engine
     reflection_engine.py    — Nightly ReasoningBank reflection (2am)
     reasoning_bank.py       — Local RAG memory for the Brain
     watchlist_mtf.py        — Multi-timeframe signals from watchlist data
     watchlist_discovery.py  — Discovery pipeline (paper evaluation of new coins)
-    cot_fetcher.py          — CFTC COT data — weekly crowding signals for CFD instruments
-    ig_atr_sizer.py         — ATR-based CFD position sizer
-    ig_overnight_cost.py    — CFD overnight financing calculator
-    ig_spread_tracker.py    — IG bid/offer spread logger (rolling 200 observations)
-    exchange_swyftx_demo.py — Swyftx demo account API client (shadow bot)
   src/
-    plugins/                — 300+ plugin folders (auto-discovered)
+    plugins/                — 280+ plugin folders (auto-discovered)
       ai_chat/              — AI Chat plugin (conversation history + Ollama streaming)
   dashboard-new/
     src/                    — React frontend source
     dist/                   — Built frontend (served by Flask)
   data/                     — Runtime data (JSON state files)
-    debate_queue.json       — Pending debate requests (written by bots, read by daemon)
-    debate_results/         — Per-instrument debate results (read by bots after daemon writes)
-    brain_orders.json       — Live Brain buy queue (crypto, legacy direct path)
+    brain_orders.json       — Live Brain buy queue (crypto)
     brain_orders_ig.json    — Live Brain buy queue (IG)
     exit_debates.json       — Open position exit debate state
     decision_ledger.json    — Full audit trail of all Brain decisions
     reasoning_bank.json     — Accumulated learned patterns
     watchlist_state.json    — 72-coin watchlist with price history
     chat_conversations.json — AI Chat conversation history
-    swyftx_demo_portfolio.json — Swyftx demo account portfolio state
-    swyftx_demo_trades.json — Swyftx demo trade history
-    cot_data.json           — CFTC COT signal cache (7-day TTL)
-    ig_spread_log.json      — Rolling spread history per IG instrument
   logs/                     — Log files
     bot_coinspot.log        — Main crypto bot log
     ig_bot.log              — IG Markets bot log
